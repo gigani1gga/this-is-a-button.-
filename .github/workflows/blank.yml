@@ -1,0 +1,6 @@
+- name: Install required Android packages
+  shell: bash
+  run: |
+    echo "Using sdkmanager from $(command -v sdkmanager)"
+    yes | sdkmanager --licenses
+    sdkmanager --install "cmdline-tools;latest" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
