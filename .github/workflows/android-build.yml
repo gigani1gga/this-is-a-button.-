@@ -1,21 +1,26 @@
+# .github/workflows/android-build.yml
 name: Android build
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
     paths-ignore:
-      - '**.zip'
-      - '**.md'
-  workflow_run:
-    workflows: ["Unzip and organize"]
-    types: [completed]
-  schedule:
-    - cron: '*/5 * * * *'   # GitHub's minimum interval is 5 minutes
+      - "**.md"
+      - "*.zip"
+  pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -23,26 +28,51 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # Empty `packages` avoids the removed "tools" package; we install what we need below.
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: ""
 
-      - name: Install required Android packages
+      - name: Install SDK packages
         shell: bash
         run: |
-          echo "Using sdkmanager from $(command -v sdkmanager)"
-          yes | sdkmanager --licenses
+          # `yes` gets SIGPIPE when sdkmanager stops reading, so don't fail on that
+          set +o pipefail
+          yes | sdkmanager --licenses > /dev/null || true
+          set -o pipefail
           sdkmanager --install "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: "8.9"
+
+      - name: Check project files
+        run: |
+          for f in settings.gradle.kts build.gradle.kts app/build.gradle.kts app/src/main/AndroidManifest.xml; do
+            test -f "$f" || { echo "::error::Missing project file: $f"; exit 1; }
+          done
 
       - name: Build debug APK
-        run: gradle assembleDebug --no-daemon
+        run: |
+          if [ -x ./gradlew ]; then
+            ./gradlew assembleDebug --no-daemon --stacktrace
+          else
+            gradle assembleDebug --no-daemon --stacktrace
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
           name: ThisIsAButton-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-reports
+          path: |
+            app/build/reports/**
+            app/build/outputs/logs/**
+          if-no-files-found: ignore
