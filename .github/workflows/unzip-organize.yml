@@ -1,39 +1,138 @@
-name: Android build
+name: Unzip and organize
 
 on:
   push:
-    branches: [ main ]
-    paths-ignore:
-      - '**.zip'
-      - '**.md'
-  workflow_run:
-    workflows: ["Unzip and organize"]
-    types: [completed]
-  schedule:
-    - cron: '*/5 * * * *'   # GitHub's minimum interval is 5 minutes
+    branches: [main]
+    paths:
+      - "*.zip"
   workflow_dispatch:
+    inputs:
+      zip_file:
+        description: "Zip in the repo root to unpack (leave empty to unpack every root .zip)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: unzip-organize
+  cancel-in-progress: false
 
 jobs:
-  build:
+  unzip:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
+      - name: Unpack zip files into the repo
+        id: unpack
+        shell: bash
+        env:
+          ZIP_INPUT: ${{ github.event.inputs.zip_file }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
 
-      - uses: android-actions/setup-android@v3
+          if [ -n "$ZIP_INPUT" ]; then
+            zips=("$ZIP_INPUT")
+          else
+            zips=(*.zip)
+          fi
 
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
+          if [ ${#zips[@]} -eq 0 ]; then
+            echo "No zip files found in the repo root. Nothing to do."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
-      - name: Build debug APK
-        run: gradle assembleDebug --no-daemon
+          # Oldest first, so when several zips contain the same file the newest
+          # zip is applied last and wins. "Newest" = most recently committed zip;
+          # zips committed together are ordered by the newest file inside them.
+          sorted=()
+          while IFS=$'\t' read -r _ _ name; do
+            sorted+=("$name")
+          done < <(
+            for z in "${zips[@]}"; do
+              [ -f "$z" ] || continue
+              ts=$(git log -1 --format=%ct -- "$z" 2>/dev/null || true)
+              inner=$(python3 -c 'import sys,zipfile,datetime as d; print(int(max(d.datetime(*i.date_time).timestamp() for i in zipfile.ZipFile(sys.argv[1]).infolist())))' "$z" 2>/dev/null || echo 0)
+              printf '%s\t%s\t%s\n' "${ts:-0}" "${inner:-0}" "$z"
+            done | sort -t$'\t' -k1,1n -k2,2n -k3,3
+          )
+          [ ${#sorted[@]} -gt 0 ] && zips=("${sorted[@]}")
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ThisIsAButton-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          replaced=0
+          added=0
+
+          for z in "${zips[@]}"; do
+            if [ ! -f "$z" ]; then
+              echo "::error::$z not found in the repo root"
+              exit 1
+            fi
+            echo "Unpacking $z"
+            tmp=$(mktemp -d)
+            unzip -q -o "$z" -d "$tmp"
+
+            # Drop macOS junk
+            rm -rf "$tmp/__MACOSX"
+            find "$tmp" -name ".DS_Store" -delete
+
+            # If everything is wrapped in a single top-level folder, step into it
+            src="$tmp"
+            entries=("$tmp"/*)
+            if [ ${#entries[@]} -eq 1 ] && [ -d "${entries[0]}" ]; then
+              src="${entries[0]}"
+            fi
+
+            # Never let a zip overwrite the workflow that is running it
+            rm -f "$src/.github/workflows/unzip-organize.yml"
+
+            # Replace any file that already exists with the version from this zip
+            while IFS= read -r -d '' f; do
+              rel="${f#"$src"/}"
+              if [ -e "$rel" ]; then
+                replaced=$((replaced + 1))
+                echo "  replaced: $rel"
+              else
+                added=$((added + 1))
+              fi
+            done < <(find "$src" -type f -print0)
+
+            cp -a -f "$src"/. .
+            rm -f "$z"
+            rm -rf "$tmp"
+          done
+
+          echo "Done: $added new file(s), $replaced replaced with the newest version."
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push
+        id: commit
+        if: steps.unpack.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nothing new to commit."
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+          else
+            git commit -m "Unzip and organize uploaded files"
+            git push
+            echo "pushed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Pushes made with the built-in token do not trigger other workflows,
+      # so start the build explicitly.
+      - name: Start the Android build
+        if: steps.commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
+        run: gh workflow run android-build.yml --ref "$REF_NAME"
