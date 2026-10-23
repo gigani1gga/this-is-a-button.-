@@ -1,3 +1,4 @@
+# .github/workflows/unzip-organize.yml
 name: Unzip and organize
 
 on:
@@ -14,7 +15,6 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 concurrency:
   group: unzip-organize
@@ -111,7 +111,6 @@ jobs:
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
       - name: Commit and push
-        id: commit
         if: steps.unpack.outputs.changed == 'true'
         shell: bash
         run: |
@@ -121,18 +120,7 @@ jobs:
           git add -A
           if git diff --cached --quiet; then
             echo "Nothing new to commit."
-            echo "pushed=false" >> "$GITHUB_OUTPUT"
           else
             git commit -m "Unzip and organize uploaded files"
             git push
-            echo "pushed=true" >> "$GITHUB_OUTPUT"
           fi
-
-      # Pushes made with the built-in token do not trigger other workflows,
-      # so start the build explicitly.
-      - name: Start the Android build
-        if: steps.commit.outputs.pushed == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REF_NAME: ${{ github.ref_name }}
-        run: gh workflow run android-build.yml --ref "$REF_NAME"
