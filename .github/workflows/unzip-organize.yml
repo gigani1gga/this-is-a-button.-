@@ -1,46 +1,39 @@
-name: Unzip and organize
+name: Android build
 
 on:
   push:
-    paths:
+    branches: [ main ]
+    paths-ignore:
       - '**.zip'
+      - '**.md'
+  workflow_run:
+    workflows: ["Unzip and organize"]
+    types: [completed]
+  schedule:
+    - cron: '*/5 * * * *'   # GitHub's minimum interval is 5 minutes
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
-  unzip:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Unzip and organize
-        run: |
-          shopt -s nullglob
-          found=0
-          for z in *.zip; do
-            found=1
-            tmp=$(mktemp -d)
-            unzip -q -o "$z" -d "$tmp"
-            rm -rf "$tmp/__MACOSX"
-            entries=("$tmp"/*)
-            # If the zip wraps everything in one folder, flatten it
-            if [ ${#entries[@]} -eq 1 ] && [ -d "${entries[0]}" ]; then
-              src="${entries[0]}"
-            else
-              src="$tmp"
-            fi
-            cp -a "$src"/. .
-            git rm -q -f "$z"
-          done
-          echo "found=$found"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
-      - name: Commit organized files
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git diff --cached --quiet && exit 0
-          git commit -m "Unzip and organize project files"
-          git push
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build debug APK
+        run: gradle assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ThisIsAButton-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
