@@ -27,12 +27,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # GITHUB_TOKEN can never push changes to .github/workflows/.
+          # If a PAT with the "workflow" scope is saved as the secret WORKFLOW_PAT,
+          # it is used instead, and workflow files inside zips are kept.
+          token: ${{ secrets.WORKFLOW_PAT || github.token }}
 
       - name: Unpack zip files into the repo
         id: unpack
         shell: bash
         env:
           ZIP_INPUT: ${{ github.event.inputs.zip_file }}
+          HAS_WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT != '' }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -83,13 +89,22 @@ jobs:
 
             # If everything is wrapped in a single top-level folder, step into it
             src="$tmp"
+            shopt -s dotglob
             entries=("$tmp"/*)
+            shopt -u dotglob
             if [ ${#entries[@]} -eq 1 ] && [ -d "${entries[0]}" ]; then
               src="${entries[0]}"
             fi
 
             # Never let a zip overwrite the workflow that is running it
             rm -f "$src/.github/workflows/unzip-organize.yml"
+
+            # GITHUB_TOKEN is not allowed to push workflow files, so skip them
+            # (unless a WORKFLOW_PAT secret is configured).
+            if [ "$HAS_WORKFLOW_PAT" != "true" ] && [ -d "$src/.github/workflows" ]; then
+              echo "  skipping .github/workflows from $z (no WORKFLOW_PAT secret set)"
+              rm -rf "$src/.github/workflows"
+            fi
 
             # Replace any file that already exists with the version from this zip
             while IFS= read -r -d '' f; do
