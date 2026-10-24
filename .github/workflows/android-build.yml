@@ -1,4 +1,3 @@
-# .github/workflows/android-build.yml
 name: Android build
 
 on:
@@ -14,13 +13,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
@@ -30,49 +26,21 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # Empty `packages` avoids the removed "tools" package; we install what we need below.
+      # Installs the SDK and accepts the licenses automatically.
       - uses: android-actions/setup-android@v3
-        with:
-          packages: ""
 
       - name: Install SDK packages
-        shell: bash
-        run: |
-          # `yes` gets SIGPIPE when sdkmanager stops reading, so don't fail on that
-          set +o pipefail
-          yes | sdkmanager --licenses > /dev/null || true
-          set -o pipefail
-          sdkmanager --install "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
 
-      - name: Check project files
-        run: |
-          for f in settings.gradle.kts build.gradle.kts app/build.gradle.kts app/src/main/AndroidManifest.xml; do
-            test -f "$f" || { echo "::error::Missing project file: $f"; exit 1; }
-          done
-
       - name: Build debug APK
-        run: |
-          if [ -x ./gradlew ]; then
-            ./gradlew assembleDebug --no-daemon --stacktrace
-          else
-            gradle assembleDebug --no-daemon --stacktrace
-          fi
+        run: gradle assembleDebug --no-daemon --stacktrace
 
       - uses: actions/upload-artifact@v4
         with:
           name: ThisIsAButton-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: build-reports
-          path: |
-            app/build/reports/**
-            app/build/outputs/logs/**
-          if-no-files-found: ignore

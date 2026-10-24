@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">This is a button</string>
+    <string name="title">Performance test</string>
+    <string name="subtitle">Pick a level to stress this device. Level 4 crashes the app on purpose.</string>
+
+    <string name="graph_title">HEAP MEMORY</string>
+    <string name="stat_heap_label">Heap (MB)</string>
+    <string name="stat_threads_label">Threads</string>
+    <string name="stat_score_label">Score (Mops/s)</string>
+    <string name="stat_heap">%1$d / %2$d</string>
+    <string name="stat_threads">%1$d</string>
+    <string name="stat_score">%1$.1f</string>
+
+    <string name="level_title">Level %1$d · %2$s</string>
+    <string name="level_1_name">Light</string>
+    <string name="level_2_name">Medium</string>
+    <string name="level_3_name">Heavy</string>
+    <string name="level_4_name">Extreme</string>
+    <string name="level_desc">%1$d threads · up to %2$d MB · %3$d s</string>
+    <string name="level_desc_crash">%1$d threads · fills memory until the app crashes</string>
+    <string name="best_suffix">best %1$.1f</string>
+    <string name="tap_to_stop">Running · tap to stop</string>
+    <string name="running_crash">Running · no way back</string>
+
+    <string name="status_idle">Ready.</string>
+    <string name="status_running">Level %1$d running · %2$d s left</string>
+    <string name="status_crashing">Level 4 running… hold on.</string>
+    <string name="status_done">Level %1$d finished · %2$.1f Mops/s</string>
+    <string name="status_done_best">Level %1$d finished · %2$.1f Mops/s · new best!</string>
+    <string name="status_stopped">Stopped.</string>
+    <string name="crash_message">This is a button. It crashed.</string>
+</resources>
